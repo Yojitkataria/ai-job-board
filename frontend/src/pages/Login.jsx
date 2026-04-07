@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { AuthenticatedRoleRedirect } from '../components/AuthenticatedRoleRedirect.jsx'
 import { supabase } from '../lib/supabase.js'
+import { fetchProfileAndNavigate } from '../lib/profileNavigation.js'
 import { useAuth } from '../context/useAuth.js'
 
 export function Login() {
@@ -20,7 +22,7 @@ export function Login() {
   }
 
   if (session) {
-    return <Navigate to="/dashboard" replace />
+    return <AuthenticatedRoleRedirect />
   }
 
   async function handleSubmit(e) {
@@ -28,15 +30,27 @@ export function Login() {
     setError(null)
     setLoading(true)
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
+      const { data: signInData, error: signInError } =
+        await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
       if (signInError) {
         setError(signInError.message)
         return
       }
-      navigate('/dashboard', { replace: true })
+      const user = signInData.user
+      if (!user) {
+        setError('Sign in did not return a user.')
+        return
+      }
+      const { error: profileError } = await fetchProfileAndNavigate(
+        navigate,
+        user,
+      )
+      if (profileError) {
+        setError(profileError.message)
+      }
     } finally {
       setLoading(false)
     }

@@ -1,7 +1,9 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from './components/ProtectedRoute.jsx'
 import { Dashboard } from './pages/Dashboard.jsx'
+import { Jobs } from './pages/Jobs.jsx'
 import { Login } from './pages/Login.jsx'
+import { Recruiter } from './pages/Recruiter.jsx'
 import { Signup } from './pages/Signup.jsx'
 
 function App() {
@@ -14,6 +16,22 @@ function App() {
         element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/recruiter"
+        element={
+          <ProtectedRoute>
+            <Recruiter />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/jobs"
+        element={
+          <ProtectedRoute>
+            <Jobs />
           </ProtectedRoute>
         }
       />
