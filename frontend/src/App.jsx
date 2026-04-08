@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from './components/ProtectedRoute.jsx'
 import { Dashboard } from './pages/Dashboard.jsx'
-import { Jobs } from './pages/Jobs.jsx'
+import Candidate from './pages/Candidate.jsx'
 import { Login } from './pages/Login.jsx'
 import { Recruiter } from './pages/Recruiter.jsx'
 import { Signup } from './pages/Signup.jsx'
@@ -31,7 +31,7 @@ function App() {
         path="/jobs"
         element={
           <ProtectedRoute>
-            <Jobs />
+            <Candidate />
           </ProtectedRoute>
         }
       />
