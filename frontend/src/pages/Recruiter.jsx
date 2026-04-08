@@ -9,12 +9,16 @@ export function Recruiter() {
   const [company, setCompany] = useState('')
   const [location, setLocation] = useState('')
   const [description, setDescription] = useState('')
+  const [deadline, setDeadline] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
   const [myJobs, setMyJobs] = useState([])
   const [jobsLoading, setJobsLoading] = useState(true)
   const [jobsError, setJobsError] = useState(null)
+  const [updatingAppId, setUpdatingAppId] = useState(null)
+  const [updatingStatus, setUpdatingStatus] = useState(null)
+  const [closingJobId, setClosingJobId] = useState(null)
 
   async function loadMyJobs() {
     setJobsError(null)
@@ -104,6 +108,8 @@ email
         company: company.trim(),
         location: location.trim(),
         description: description.trim(),
+        deadline,
+        is_open: true,
         created_by: session.user.id,
       }
 
@@ -118,9 +124,70 @@ email
       setCompany('')
       setLocation('')
       setDescription('')
+      setDeadline('')
       await loadMyJobs()
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function closeJob(jobId) {
+    setJobsError(null)
+    setClosingJobId(jobId)
+    try {
+      const { error: closeError } = await supabase
+        .from('jobs')
+        .update({ is_open: false })
+        .eq('id', jobId)
+
+      if (closeError) {
+        setJobsError(closeError.message)
+        return
+      }
+
+      await loadMyJobs()
+    } finally {
+      setClosingJobId(null)
+    }
+  }
+
+  function formatDeadline(dateStr) {
+    if (!dateStr) return null
+    const d = new Date(dateStr)
+    if (Number.isNaN(d.getTime())) return dateStr
+    return d.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    })
+  }
+
+  function isDeadlineExpired(dateStr) {
+    if (!dateStr) return false
+    const d = new Date(dateStr)
+    if (Number.isNaN(d.getTime())) return false
+    return d < new Date()
+  }
+
+  async function updateApplicationStatus(appId, newStatus) {
+    setJobsError(null)
+    setUpdatingAppId(appId)
+    setUpdatingStatus(newStatus)
+    try {
+      const { error: updateError } = await supabase
+        .from('applications')
+        .update({ status: newStatus })
+        .eq('id', appId)
+
+      if (updateError) {
+        setJobsError(updateError.message)
+        return
+      }
+
+      await loadMyJobs()
+    } finally {
+      setUpdatingAppId(null)
+      setUpdatingStatus(null)
     }
   }
 
@@ -166,6 +233,17 @@ email
             />
           </label>
           <label className="auth-field">
+            <span>Deadline</span>
+            <input
+              type="date"
+              name="deadline"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              required
+              disabled={loading}
+            />
+          </label>
+          <label className="auth-field">
             <span>Description</span>
             <textarea
               name="description"
@@ -205,10 +283,57 @@ email
             <ul className="jobs-list">
               {myJobs.map(({ job, apps, appsError }) => (
                 <li key={job.id} className="job-card">
-                  <h3 className="job-title">{job.title}</h3>
-                  <p className="job-meta">
-                    Applicants: <strong>{apps.length}</strong>
-                  </p>
+                  {(() => {
+                    const total = apps.length
+                    const shortlisted = apps.filter(
+                      (a) => a.status === 'shortlisted',
+                    ).length
+                    const rejected = apps.filter(
+                      (a) => a.status === 'rejected',
+                    ).length
+                    const expired = isDeadlineExpired(job.deadline)
+                    const closed = job.is_open === false || expired
+
+                    return (
+                      <>
+                        <h3 className="job-title">{job.title}</h3>
+                        <div className="job-meta">
+                          <div>
+                            Applicants: <strong>{total}</strong>
+                          </div>
+                          <div>
+                            Shortlisted: <strong>{shortlisted}</strong>
+                          </div>
+                          <div>
+                            Rejected: <strong>{rejected}</strong>
+                          </div>
+                          <div>
+                            Deadline:{' '}
+                            <strong>
+                              {formatDeadline(job.deadline) ?? '—'}
+                            </strong>
+                          </div>
+                          <div>
+                            Status: <strong>{closed ? 'Closed' : 'Open'}</strong>
+                          </div>
+                        </div>
+                        <div className="job-actions">
+                          <button
+                            type="button"
+                            className="auth-button secondary"
+                            onClick={() => closeJob(job.id)}
+                            disabled={closed || closingJobId === job.id}
+                          >
+                            {closed
+                              ? 'Closed'
+                              : closingJobId === job.id
+                                ? 'Closing…'
+                                : 'Close Job'}
+                          </button>
+                        </div>
+                      </>
+                    )
+                  })()}
                   {appsError ? (
                     <p className="auth-error" role="alert">
                       {appsError}
@@ -217,14 +342,70 @@ email
                     <p className="auth-info">No applicants yet.</p>
                   ) : (
                     <ul className="applicants-list">
-                      {apps.map((app) => (
-                        <li key={app.id} className="applicant-item">
-                          <div>
-                            <strong>{app.profiles?.name ?? 'Unknown'}</strong>
-                          </div>
-                          <div>{app.profiles?.email ?? app.candidate_id}</div>
-                        </li>
-                      ))}
+                      {apps.map((app) => {
+                        const profile = Array.isArray(app.profiles)
+                          ? app.profiles[0]
+                          : app.profiles
+
+                        return (
+                          <li key={app.id} className="applicant-item">
+                            <div>
+                              <strong>{profile?.name ?? 'Unknown'}</strong>
+                            </div>
+                            <div>{profile?.email ?? app.candidate_id}</div>
+                            <div className="applicant-status-row">
+                              <span className="applicant-status-label">
+                                Status
+                              </span>
+                              <span className="applicant-status-value">
+                                {app.status ?? 'applied'}
+                              </span>
+                            </div>
+                            <div className="applicant-actions">
+                              <button
+                                type="button"
+                                className={`auth-button secondary ${
+                                  app.status === 'shortlisted' ? 'active' : ''
+                                }`}
+                                disabled={
+                                  app.status === 'shortlisted' ||
+                                  updatingAppId === app.id
+                                }
+                                onClick={() =>
+                                  updateApplicationStatus(app.id, 'shortlisted')
+                                }
+                              >
+                                {updatingAppId === app.id &&
+                                updatingStatus === 'shortlisted'
+                                  ? 'Shortlisting…'
+                                  : app.status === 'shortlisted'
+                                    ? 'Shortlisted'
+                                    : 'Shortlist'}
+                              </button>
+                              <button
+                                type="button"
+                                className={`auth-button secondary ${
+                                  app.status === 'rejected' ? 'active' : ''
+                                }`}
+                                disabled={
+                                  app.status === 'rejected' ||
+                                  updatingAppId === app.id
+                                }
+                                onClick={() =>
+                                  updateApplicationStatus(app.id, 'rejected')
+                                }
+                              >
+                                {updatingAppId === app.id &&
+                                updatingStatus === 'rejected'
+                                  ? 'Rejecting…'
+                                  : app.status === 'rejected'
+                                    ? 'Rejected'
+                                    : 'Reject'}
+                              </button>
+                            </div>
+                          </li>
+                        )
+                      })}
                     </ul>
                   )}
                 </li>
