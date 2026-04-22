@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../context/useAuth.js'
 import { LogoutButton } from '../components/LogoutButton.jsx'
@@ -16,18 +16,39 @@ export function Recruiter() {
   const [myJobs, setMyJobs] = useState([])
   const [jobsLoading, setJobsLoading] = useState(true)
   const [jobsError, setJobsError] = useState(null)
-  const [updatingAppId, setUpdatingAppId] = useState(null)
-  const [updatingStatus, setUpdatingStatus] = useState(null)
-  const [closingJobId, setClosingJobId] = useState(null)
+  const mountedRef = useRef(true)
+  const fetchIdRef = useRef(0)
+  const myJobIdsRef = useRef(new Set())
+  const getTodayStart = useCallback(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return today
+  }, [])
 
-  async function loadMyJobs() {
+  const isPastDeadline = useCallback(
+    (dateStr) => {
+      if (!dateStr) return false
+      const d = new Date(dateStr)
+      if (Number.isNaN(d.getTime())) return false
+      d.setHours(0, 0, 0, 0)
+      return d < getTodayStart()
+    },
+    [getTodayStart],
+  )
+
+  const loadMyJobs = useCallback(async ({ silent = false } = {}) => {
+    const fetchId = ++fetchIdRef.current
     setJobsError(null)
-    setJobsLoading(true)
+    if (!silent) {
+      setJobsLoading(true)
+    }
     try {
       const {
         data: { user: authUser },
         error: authError,
       } = await supabase.auth.getUser()
+
+      if (!mountedRef.current || fetchId !== fetchIdRef.current) return
 
       if (authError) {
         setJobsError(authError.message)
@@ -51,41 +72,129 @@ export function Recruiter() {
         return
       }
 
-      const jobsWithApps = await Promise.all(
-        (jobs ?? []).map(async (job) => {
-          const { data: apps, error: appsError } = await supabase
-            .from('applications')
-            .select(
-              `id,
+      const jobIds = (jobs ?? []).map((job) => job.id)
+      let appsByJobId = new Map()
+      let appsErrorMessage = null
+
+      if (jobIds.length > 0) {
+        const { data: allApps, error: appsError } = await supabase
+          .from('applications')
+          .select(
+            `id,
+job_id,
 candidate_id,
 status,
 profiles (
 name,
 email
 )`,
-            )
-            .eq('job_id', job.id)
+          )
+          .in('job_id', jobIds)
 
-          return {
-            job,
-            apps: appsError ? [] : apps ?? [],
-            appsError: appsError?.message ?? null,
-          }
-        }),
-      )
+        if (appsError) {
+          appsErrorMessage = appsError.message
+        } else {
+          appsByJobId = (allApps ?? []).reduce((acc, app) => {
+            const current = acc.get(app.job_id) ?? []
+            acc.set(app.job_id, [...current, app])
+            return acc
+          }, new Map())
+        }
+      }
 
+      const jobsWithApps = (jobs ?? []).map((job) => ({
+        job,
+        apps: appsErrorMessage ? [] : appsByJobId.get(job.id) ?? [],
+        appsError: appsErrorMessage,
+      }))
+
+      if (!mountedRef.current || fetchId !== fetchIdRef.current) return
       setMyJobs(jobsWithApps)
     } finally {
-      setJobsLoading(false)
+      if (mountedRef.current && fetchId === fetchIdRef.current && !silent) {
+        setJobsLoading(false)
+      }
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     loadMyJobs()
-  }, [])
+  }, [loadMyJobs])
+
+  useEffect(() => {
+    myJobIdsRef.current = new Set(myJobs.map(({ job }) => job.id))
+  }, [myJobs])
+
+  useEffect(() => {
+    if (!user?.id) return
+
+    const jobsChannel = supabase
+      .channel(`recruiter-jobs-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'jobs',
+          filter: `created_by=eq.${user.id}`,
+        },
+        () => {
+          loadMyJobs({ silent: true })
+        },
+      )
+      .subscribe()
+
+    const applicationsChannel = supabase
+      .channel(`recruiter-applications-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'applications',
+        },
+        (payload) => {
+          const changedJobId = payload.new?.job_id ?? payload.old?.job_id
+          if (changedJobId && myJobIdsRef.current.has(changedJobId)) {
+            loadMyJobs({ silent: true })
+          }
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(jobsChannel)
+      supabase.removeChannel(applicationsChannel)
+    }
+  }, [user?.id, loadMyJobs])
 
   async function handleSubmit(e) {
     e.preventDefault()
+    const cleanTitle = title.trim()
+    const cleanCompany = company.trim()
+    const cleanLocation = location.trim()
+    const cleanDescription = description.trim()
+
+    if (!cleanTitle) {
+      setError('Title is required.')
+      return
+    }
+    if (!cleanCompany) {
+      setError('Company is required.')
+      return
+    }
+    if (isPastDeadline(deadline)) {
+      setError('Deadline cannot be in the past.')
+      return
+    }
+
     setError(null)
     setSuccess(false)
     setLoading(true)
@@ -104,11 +213,11 @@ email
       }
 
       const insertPayload = {
-        title: title.trim(),
-        company: company.trim(),
-        location: location.trim(),
-        description: description.trim(),
-        deadline,
+        title: cleanTitle,
+        company: cleanCompany,
+        location: cleanLocation || null,
+        description: cleanDescription || null,
+        deadline: deadline || null,
         is_open: true,
         created_by: session.user.id,
       }
@@ -254,13 +363,23 @@ email
               rows={5}
             />
           </label>
+          <label className="auth-field">
+            <span>Deadline</span>
+            <input
+              type="date"
+              name="deadline"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              disabled={loading}
+            />
+          </label>
           {error ? (
-            <p className="auth-error" role="alert">
+            <p className="auth-error" role="alert" aria-live="polite">
               {error}
             </p>
           ) : null}
           {success ? (
-            <p className="auth-info" role="status">
+            <p className="auth-info" role="status" aria-live="polite">
               Job created
             </p>
           ) : null}
@@ -272,11 +391,24 @@ email
         <div className="jobs-section">
           <h2 className="jobs-section-title">Your jobs</h2>
           {jobsLoading ? (
-            <p className="auth-status">Loading…</p>
-          ) : jobsError ? (
-            <p className="auth-error" role="alert">
-              {jobsError}
+            <p className="auth-status" role="status" aria-live="polite">
+              Loading…
             </p>
+          ) : jobsError ? (
+            <>
+              <p className="auth-error" role="alert" aria-live="polite">
+                {jobsError}
+              </p>
+              <div className="job-actions">
+                <button
+                  type="button"
+                  className="auth-button secondary"
+                  onClick={() => loadMyJobs()}
+                >
+                  Retry
+                </button>
+              </div>
+            </>
           ) : myJobs.length === 0 ? (
             <p className="auth-info">No jobs created yet.</p>
           ) : (

@@ -22,7 +22,7 @@ function App() {
       <Route
         path="/recruiter"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute requiredRole="recruiter">
             <Recruiter />
           </ProtectedRoute>
         }
@@ -30,8 +30,8 @@ function App() {
       <Route
         path="/jobs"
         element={
-          <ProtectedRoute>
-            <Candidate />
+          <ProtectedRoute requiredRole="candidate">
+            <Jobs />
           </ProtectedRoute>
         }
       />

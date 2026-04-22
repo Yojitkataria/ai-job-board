@@ -27,13 +27,21 @@ export function Login() {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    const cleanEmail = email.trim()
+    const cleanPassword = password.trim()
+
+    if (!cleanEmail || !cleanPassword) {
+      setError('Email and password are required.')
+      return
+    }
+
     setError(null)
     setLoading(true)
     try {
       const { data: signInData, error: signInError } =
         await supabase.auth.signInWithPassword({
-          email,
-          password,
+          email: cleanEmail,
+          password: cleanPassword,
         })
       if (signInError) {
         setError(signInError.message)
@@ -86,7 +94,7 @@ export function Login() {
             />
           </label>
           {error ? (
-            <p className="auth-error" role="alert">
+            <p className="auth-error" role="alert" aria-live="polite">
               {error}
             </p>
           ) : null}

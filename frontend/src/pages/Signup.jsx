@@ -19,6 +19,7 @@ export function Signup() {
   const [role, setRole] = useState('candidate')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [info, setInfo] = useState(null)
 
   if (authLoading) {
     return (
@@ -34,12 +35,28 @@ export function Signup() {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    const cleanName = name.trim()
+    const cleanEmail = email.trim()
+    const cleanPassword = password.trim()
+
+    if (!cleanName || !cleanEmail || !cleanPassword) {
+      setError('Name, email, and password are required.')
+      return
+    }
+
     setError(null)
+    setInfo(null)
     setLoading(true)
     try {
       const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
+        email: cleanEmail,
+        password: cleanPassword,
+        options: {
+          data: {
+            name: cleanName,
+            role,
+          },
+        },
       })
       if (signUpError) {
         setError(signUpError.message)
@@ -52,14 +69,8 @@ export function Signup() {
         return
       }
 
-      const { error: profileError } = await supabase.from('profiles').insert({
-        id: user.id,
-        email: user.email,
-        name: name.trim(),
-        role,
-      })
-      if (profileError) {
-        setError(profileError.message)
+      if (!data.session) {
+        setInfo('Signup successful. Please check your email to confirm your account, then log in.')
         return
       }
 
@@ -134,8 +145,13 @@ export function Signup() {
             </select>
           </label>
           {error ? (
-            <p className="auth-error" role="alert">
+            <p className="auth-error" role="alert" aria-live="polite">
               {error}
+            </p>
+          ) : null}
+          {info ? (
+            <p className="auth-info" role="status" aria-live="polite">
+              {info}
             </p>
           ) : null}
           <button type="submit" className="auth-button" disabled={loading}>

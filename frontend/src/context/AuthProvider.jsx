@@ -8,19 +8,30 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let mounted = true
+    let initialResolved = false
 
-    supabase.auth.getSession().then(({ data: { session: initial } }) => {
-      if (mounted) {
-        setSession(initial)
-        setLoading(false)
-      }
-    })
+    const finishInitialLoad = () => {
+      if (!mounted || initialResolved) return
+      initialResolved = true
+      setLoading(false)
+    }
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!mounted) return
       setSession(nextSession)
+      finishInitialLoad()
     })
+
+    ;(async () => {
+      const { data, error } = await supabase.auth.getSession()
+      if (!mounted) return
+      if (!error) {
+        setSession(data.session ?? null)
+      }
+      finishInitialLoad()
+    })()
 
     return () => {
       mounted = false

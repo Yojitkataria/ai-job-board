@@ -246,6 +246,8 @@ code {
 .auth-footer a {
   color: var(--accent);
   font-weight: 500;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .dashboard-email {
@@ -354,6 +356,8 @@ code {
   margin: 0;
   font-size: 15px;
   color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .job-actions {
@@ -381,6 +385,8 @@ code {
   font-family: var(--mono);
   font-size: 13px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .applicant-status-row {
